@@ -1,7 +1,5 @@
--- PotionTweaks (UE4SS 3.0.1 mod for Dauntless 1.14.7, Dauntless Forever Modded mode)
+-- PotionTweaks (UE4SS 3.0.1 mod for Dauntless 1.14.7, Dauntless Forever Modded mode) - by GoldenHeartbell
 -- Changes potion (tonic) strength / duration / stack size by editing the potion item's default values
--- (/Game/Blueprints/InventoryItems/QuickItems/QuickItem_*, names checked against the 1.14.7 pak index). The game reads
--- these when you drink a potion, so the buff, its timer and the tooltip follow.
 --
 -- Two parts, one mod folder:
 --   dlls\main.dll     the "Potions" tab in the UE4SS window (Ctrl+O in game); it only writes settings.txt
@@ -9,7 +7,6 @@
 -- Files in the mod folder:
 --   settings.txt  your values, one "Potion.Property=value" per line, e.g. "Damage_Block_Potion.NumCharges=5"
 --   found.txt     the game's normal values (shown in the tab)
---   props.txt     every number on each potion, as the game has it (to find out what a 1.14.7 potion can change)
 -- No settings.txt (or an empty one) = the normal game. Values that are removed go back to normal.
 --
 -- 1.14.7 loads the potion classes only when it needs them (your loadout, a hunt); each one is changed within 3 s of
@@ -18,11 +15,12 @@
 -- launcher's Mods page, or only your tooltip changes. Servers read the same settings.txt.
 -- Log lines start with "[PotionTweaks]" (ue4ss\UE4SS.log, or the Console tab in Ctrl+O).
 
-local PROPS = { 'BaseAmount', 'BaseMinAmount', 'BaseMaxAmount', 'BaseEnrageAmount', 'BaseDuration', 'MaxStackSize', 'NumCharges', 'Magnitude' }
+local PROPS = { 'BaseAmount', 'BaseMinAmount', 'BaseMaxAmount', 'BaseEnrageAmount', 'BaseDuration', 'MaxStackSize', 'NumCharges', 'Magnitude', 'DefaultHealAmount' }
 local INT_PROPS = { MaxStackSize = true, NumCharges = true }
--- 1.14.7 names (in game): Frenzy, Blitz, Insight, Assault, Lifedrain, Aetherdrive, Bulwark, Granny's Heartbreaker, Stamina
+-- 1.14.7 names (in game): Frenzy, Blitz, Insight, Assault, Lifedrain, Aetherdrive, Bulwark, Granny's Heartbreaker, Stamina,
+-- Slayer Flask (Healing_Flask_00). Values other than PROPS also work: any number in settings.txt that the item has.
 local ALL = { 'Damage_EnrageBonus_Potion', 'Attack_Speed_Potion', 'Expose_Potion', 'Stagger_Potion', 'Lifesteal_AoE_Potion',
-              'Lantern_Potion', 'Damage_Block_Potion', '11A_Crit_Potion', 'StaminaPotion_00' }
+              'Lantern_Potion', 'Damage_Block_Potion', '11A_Crit_Potion', 'StaminaPotion_00', 'Healing_Flask_00' }
 local DIR = '/Game/Blueprints/InventoryItems/QuickItems/'
 
 local function log(s) print('[PotionTweaks] ' .. s .. '\n') end
@@ -40,7 +38,6 @@ local MOD_DIR = (function()
 end)()
 local SETTINGS = MOD_DIR .. 'settings.txt'
 local FOUND = MOD_DIR .. 'found.txt'
-local PROPS_FILE = MOD_DIR .. 'props.txt'
 
 local function write_file(file, lines)
     local tmp = file .. '.tmp'
@@ -64,33 +61,83 @@ local original = {}   -- original[name][prop] = the game's normal value (read on
 local function write_found()
     local lines = { '# PotionTweaks: the game\'s normal potion values (written by Scripts\\main.lua, read by the Potions tab)' }
     for _, name in ipairs(ALL) do
-        if original[name] then for _, k in ipairs(PROPS) do
-            if original[name][k] then lines[#lines + 1] = name .. '.' .. k .. '=' .. string.format('%g', original[name][k]) end
-        end end
+        if original[name] then
+            local keys = {}
+            for k in pairs(original[name]) do keys[#keys + 1] = k end
+            table.sort(keys)
+            for _, k in ipairs(keys) do lines[#lines + 1] = name .. '.' .. k .. '=' .. string.format('%g', original[name][k]) end
+        end
     end
     write_file(FOUND, lines)
 end
 
--- every number property on the potion and its parent classes, so we can see what 1.14.7 really has
-local props_lines = { '# PotionTweaks: all number values on each potion as the game has them (Potion.Property=value  [type, class])' }
-local function dump_props(cdo, name)
-    pcall(function()
-        local cls, depth = cdo:GetClass(), 0
-        while cls and cls:IsValid() and depth < 10 do
-            local cname = str(cls:GetFName())
-            if cname == 'Object' then break end
-            cls:ForEachProperty(function(p)
-                local pname, ptype = str(p:GetFName()), str(p:GetClass():GetFName())
-                local v = get(cdo, pname)
-                if v ~= nil then props_lines[#props_lines + 1] = string.format('%s.%s=%g  [%s, %s]', name, pname, v, ptype, cname)
-                else props_lines[#props_lines + 1] = string.format('# %s.%s  [%s, %s]', name, pname, ptype, cname) end
-            end)
-            cls, depth = cls:GetSuperStruct(), depth + 1
-        end
-    end)
-    write_file(PROPS_FILE, props_lines)
-end
+local function full_name(o) local ok, s = pcall(function() return o:GetFullName() end); return ok and s or nil end
 
+-- Bulwark: each blocked hit is one stack of its gameplay effects, and those stop at StackLimitCount (10 in 1.14.7,
+-- also the counter top left). Raise the limit to the hits-blocked value when that is higher; put it back otherwise.
+local STACK_EFFECTS = { { 'Damage_Block_Potion', 'NumCharges', '/Game/game/consumables/damage_block_ge' },
+                        { 'Damage_Block_Potion', 'NumCharges', '/Game/game/consumables/damage_block_icon_ge' } }
+local stack_normal = {}
+-- Slayer Flask: the heal (425) is on the flask (DefaultHealAmount; its HealBonuses list holds the Slayer's path upgrades,
+-- +10% and +15%) and again on its drink ability ("Heal Amount"). The default objects get your value. A live ability that holds
+-- more than its default keeps that extra on top of your value; the game writing a new value there is picked up again.
+local LINKS = {
+    { key = 'Healing_Flask_00.DefaultHealAmount', prop = 'Heal Amount', class = 'Ability_QuickItem_Healing_Potion_Flask_C',
+      path = '/Game/Blueprints/InventoryItems/Abilities/Ability_QuickItem_Healing_Potion_Flask.Default__Ability_QuickItem_Healing_Potion_Flask_C' },
+}
+local link_orig, link_last, link_extra, link_wrote = {}, {}, {}, {}
+local function patch_links(settings)
+    for _, l in ipairs(LINKS) do
+        local cdo = StaticFindObject(l.path)
+        if cdo and cdo:IsValid() then
+            if link_orig[l.key] == nil then
+                link_orig[l.key] = get(cdo, l.prop)
+                if link_orig[l.key] then log(l.class .. ' normal: ' .. l.prop .. '=' .. string.format('%g', link_orig[l.key])) end
+            end
+            local orig = link_orig[l.key]
+            local want = settings[l.key] or orig
+            if want and orig then
+                -- a live copy starts as a copy of the default as it was before this tick ('have'), so its own extra
+                -- (e.g. upgrades) is measured against that, not against 425 (else a copy made after the default was
+                -- patched counted the change twice: 1143 became 1861)
+                local have = get(cdo, l.prop) or orig
+                if math.abs(have - want) > 1e-6 then put(cdo, l.prop, want) end
+                local live = FindAllOf(l.class)
+                if live then for _, o in ipairs(live) do
+                    local fn = o:IsValid() and full_name(o)
+                    if fn and not fn:find('Default__', 1, true) then
+                        local h = get(o, l.prop)
+                        if h then
+                            if link_extra[fn] == nil or (link_wrote[fn] and math.abs(h - link_wrote[fn]) > 1e-3) then link_extra[fn] = h - have end
+                            local target = want + link_extra[fn]
+                            if math.abs(h - target) > 1e-3 then put(o, l.prop, target) end
+                            link_wrote[fn] = target
+                        end
+                    end
+                end end
+                local text = string.format('%g', want)
+                if link_last[l.key] ~= text then link_last[l.key] = text; log('Slayer Flask heal now: ' .. text) end
+            end
+        end
+    end
+end
+local function patch_stack_limits(settings)   -- settings passed in: the file-level 'settings' is declared further down
+    for _, e in ipairs(STACK_EFFECTS) do
+        local name, prop, path = e[1], e[2], e[3]
+        local cname = path:match('([^/]+)$')
+        local cdo = StaticFindObject(path .. '.Default__' .. cname .. '_C')
+        if cdo and cdo:IsValid() then
+            local have = get(cdo, 'StackLimitCount')
+            if have ~= nil then
+                if stack_normal[path] == nil then stack_normal[path] = have; log(cname .. ' normal: StackLimitCount=' .. have) end
+                local want = stack_normal[path]
+                local charges = settings[name .. '.' .. prop]
+                if charges and charges > want then want = math.floor(charges + 0.5) end
+                if have ~= want and put(cdo, 'StackLimitCount', want) then log(cname .. ' now: StackLimitCount=' .. want) end
+            end
+        end
+    end
+end
 local settings, last_text = {}, {}
 local function target(name, k)
     local v = settings[name .. '.' .. k]
@@ -121,10 +168,19 @@ local function patch(name)
         original[name] = {}
         local parts = {}
         for _, k in ipairs(PROPS) do local v = get(cdo, k); if v then original[name][k] = v; parts[#parts + 1] = k .. '=' .. string.format('%g', v) end end
-        log(name .. ' normal: ' .. (#parts > 0 and table.concat(parts, ' ') or '(none of the known values, see props.txt)'))
+        log(name .. ' normal: ' .. (#parts > 0 and table.concat(parts, ' ') or '(none of the known values)'))
         write_found()
-        dump_props(cdo, name)
     end
+    -- any other value set for this item in settings.txt: remember its normal value too
+    local added = false
+    for k in pairs(settings) do
+        local n, p = k:match('^([%w_]+)%.([%w_]+)$')
+        if n == name and original[name][p] == nil then
+            local v = get(cdo, p)
+            if v ~= nil then original[name][p] = v; added = true; log(name .. ' normal: ' .. p .. '=' .. string.format('%g', v)) end
+        end
+    end
+    if added then write_found() end
     apply(cdo, name)
     local live = FindAllOf('QuickItem_' .. name .. '_C')
     if live then for _, o in ipairs(live) do if o:IsValid() then apply(o, name) end end end
@@ -155,8 +211,64 @@ LoopAsync(3000, function()
         if not ok and last_text[name .. '!'] ~= tostring(done) then last_text[name .. '!'] = tostring(done); log(name .. ': error ' .. tostring(done)) end
         if not (ok and done) then missing[#missing + 1] = name end
     end
+    local okl, errl = pcall(patch_links, settings)
+    if not okl and last_text['link!'] ~= tostring(errl) then last_text['link!'] = tostring(errl); log('flask heal: error ' .. tostring(errl)) end
+    local okp, errp = pcall(patch_stack_limits, settings)
+    if not okp and last_text['stack!'] ~= tostring(errp) then last_text['stack!'] = tostring(errp); log('stack limit: error ' .. tostring(errp)) end
     -- after ~30 s, say which potions are not loaded yet (then every 5 minutes); they load with your loadout or a hunt
     if #missing > 0 and (ticks == 10 or ticks % 100 == 0) then log('not loaded yet (open your loadout or start a hunt): ' .. table.concat(missing, ', '))
     elseif #missing == 0 and not reported then reported = true; log('all potions found') end
+    return false
+end)
+
+-- 100% mode ("100%" in the tab, saved as value 999). The game divides by (1 + value), so it never reaches 0 by itself:
+--   Stamina Tonic: stamina use / (1 + BaseAmount)        -> while active: stamina use 0 and stamina kept full
+--   Bulwark:       damage taken / (1 + Magnitude)        -> while active: damage-taken multiplier 0 (no damage)
+-- "Active" = the value is far below normal (1/1000 then, or already forced to 0); other effects never go this low.
+-- Runs in your game and in your hunt server (both have this mod).
+local FULL = 999
+local full_modes = {
+    { key = 'StaminaPotion_00.BaseAmount', name = 'stamina', what = 'no stamina used while the Stamina Tonic is active',
+      apply = function(s)
+          local use = get(s, 'StaminaConsumption')
+          if use ~= nil and use < 0.01 then
+              if use ~= 0 then put(s, 'StaminaConsumption', 0) end
+              local maxs, cur = get(s, 'MaxStamina'), get(s, 'Stamina')
+              if maxs and cur and cur < maxs then put(s, 'Stamina', maxs) end
+          end
+      end },
+    { key = 'Damage_Block_Potion.Magnitude', name = 'bulwark', what = 'no damage taken while the Bulwark is active',
+      apply = function(s)
+          local m = get(s, 'GlobalSelfPostMigationMultiplier')
+          if m ~= nil and m < 0.01 and m ~= 0 then put(s, 'GlobalSelfPostMigationMultiplier', 0) end
+      end },
+}
+local full_on, full_sets, full_scan = {}, {}, 0
+LoopAsync(250, function()
+    pcall(function()
+        local any = false
+        for _, fm in ipairs(full_modes) do
+            local v = settings[fm.key]
+            local on = v ~= nil and v >= FULL
+            if on ~= (full_on[fm.name] or false) then full_on[fm.name] = on; log(fm.name .. ': 100% mode ' .. (on and ('on (' .. fm.what .. ')') or 'off')) end
+            any = any or on
+        end
+        if not any then return end
+        local now = os.clock()
+        if now >= full_scan then   -- the players' health attribute sets, found again every 5 s
+            full_scan = now + 5
+            full_sets = {}
+            local all = FindAllOf('ArchonHealthAttributeSet')
+            if all then for _, s in ipairs(all) do
+                local fn = full_name(s) or ''
+                if s:IsValid() and fn:match('PlayerCharacter') and not fn:match('Default__') then full_sets[#full_sets + 1] = s end
+            end end
+        end
+        for _, s in ipairs(full_sets) do
+            if s:IsValid() then
+                for _, fm in ipairs(full_modes) do if full_on[fm.name] then pcall(fm.apply, s) end end
+            end
+        end
+    end)
     return false
 end)

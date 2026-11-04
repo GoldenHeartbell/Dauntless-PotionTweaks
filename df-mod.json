@@ -1,0 +1,5 @@
+{
+  "title": "PotionTweaks",
+  "about": "Change tonic strength, duration and how many you carry, and the Slayer Flask heal. Turn on servers too for hunts.",
+  "keys": [["Ctrl+O", "open the UE4SS window, then the Potions tab"]]
+}
