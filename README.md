@@ -1,4 +1,4 @@
-# PotionTweaks
+# Dauntless PotionTweaks
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7**.
 
