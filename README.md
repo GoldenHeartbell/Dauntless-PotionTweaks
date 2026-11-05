@@ -1,6 +1,6 @@
 # Dauntless PotionTweaks
 
-Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7**.
+Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
 By GoldenHeartbell. Version 1.1. [Download the latest release](https://github.com/GoldenHeartbell/PotionTweaks/releases/latest)
 
@@ -23,7 +23,7 @@ Your tonic upgrades (and the flask upgrades from the Slayer's path) still add on
 
 ## What you need
 
-- Dauntless 1.14.7
+- Dauntless 1.14.7 or 1.6.2 (the same mod folder works in both)
 - UE4SS **v3.0.1** installed in the game. Dauntless Forever "Modded" mode puts it in `Archon\Binaries\Win64\ue4ss`.
   Other UE4SS versions will not load the Potions tab.
 
