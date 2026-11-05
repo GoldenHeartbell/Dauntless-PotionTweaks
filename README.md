@@ -2,7 +2,7 @@
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
-By GoldenHeartbell. Version 1.1. [Download the latest release](https://github.com/GoldenHeartbell/PotionTweaks/releases/latest)
+By GoldenHeartbell. Version 1.1. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
 
 ## What it does
 
@@ -93,4 +93,4 @@ These are in the mod folder:
 
 - PotionTweaks: GNU AGPL-3.0, see [LICENSE](LICENSE).
 - Dear ImGui and RE-UE4SS (both MIT): see [LICENSES.txt](LICENSES.txt).
-- Source and releases: <https://github.com/GoldenHeartbell/PotionTweaks>
+- Source and releases: <https://github.com/GoldenHeartbell/Dauntless-PotionTweaks>
