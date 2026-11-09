@@ -2,7 +2,7 @@
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
-By GoldenHeartbell. Version 1.1. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
+By GoldenHeartbell. Version 1.2. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
 
 ## What it does
 
@@ -66,6 +66,23 @@ Open the Console tab in the UE4SS window (Ctrl+O), or `ue4ss\UE4SS.log`, and loo
 
 > Your game and your hunt server write to the same `UE4SS.log`, so the one started last overwrites it.
 
+## The game crashes sometimes
+
+Close the game, open `<game folder>\Archon\Binaries\Win64\ue4ss\UE4SS-settings.ini` and change
+
+```
+bUseUObjectArrayCache = true
+```
+
+to
+
+```
+bUseUObjectArrayCache = false
+```
+
+This UE4SS cache can crash Dauntless when a mod looks up game objects while the game is loading or freeing them.
+The crash report then says `EXCEPTION_ACCESS_VIOLATION` with `UE4SS` at the top of the call stack.
+
 ## Files the mod writes
 
 These are in the mod folder:
@@ -76,6 +93,12 @@ These are in the mod folder:
 | `found.txt` | The game's normal values, shown in the tab |
 
 ## Changes
+
+### 1.2
+
+- Fixed the game crashing now and then, and menus being slow to close: the mod no longer searches all game objects.
+- Recommended: `bUseUObjectArrayCache = false` (see "The game crashes sometimes").
+- At 100% (Stamina Tonic, Bulwark), the effect starts right away when you drink, also at the start of a hunt.
 
 ### 1.1
 

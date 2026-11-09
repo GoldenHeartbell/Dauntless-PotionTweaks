@@ -28,6 +28,8 @@ local function get(o, k) local ok, v = pcall(function() return o[k] end); if ok 
 local function put(o, k, v) return pcall(function() o[k] = v end) end
 local function str(x) local ok, s = pcall(function() return x:ToString() end); return ok and s or '?' end
 
+local settings_changed, ticks, reported = true, 0, false
+
 -- this mod's folder (...\Mods\PotionTweaks\), from this script's own path
 local MOD_DIR = (function()
     local ok, info = pcall(debug.getinfo, 1, 'S')
@@ -72,6 +74,49 @@ local function write_found()
 end
 
 local function full_name(o) local ok, s = pcall(function() return o:GetFullName() end); return ok and s or nil end
+local function class_name(o) local ok, s = pcall(function() return o:GetClass():GetFName():ToString() end); return ok and s or nil end
+local function is_default(o) local ok, s = pcall(function() return o:GetFName():ToString() end); return not ok or s:find('^Default__') ~= nil end
+
+-- Live objects are kept in lists the game fills (NotifyOnNewObject) instead of searched for (FindAllOf walks every
+-- object, with the cache off that ran hunt servers out of memory). Registered only at start.
+local live, last_kept, tracking = {}, {}, {}
+local watching = {}   -- watching[kind] = true when the game tells us about new objects of that kind
+local function keep(list, o)
+    local ok, addr = pcall(function() return o:GetAddress() end)
+    if not ok or last_kept[list] == addr then return end   -- two parent classes can report the same new object
+    last_kept[list] = addr
+    local t = live[list]; if not t then t = {}; live[list] = t end
+    t[#t + 1] = o
+    if not tracking[list] then tracking[list] = true; log('tracking new ' .. list .. ' objects') end
+end
+local function watch(kind, paths, filter)
+    for _, p in ipairs(paths) do
+        local c = StaticFindObject(p)
+        if c and c:IsValid() then
+            NotifyOnNewObject(p, function(o) pcall(filter, o) end)
+            watching[kind] = true
+        end
+    end
+    if not watching[kind] then log(kind .. ': game class not found (' .. table.concat(paths, ', ') .. '), searching instead') end
+end
+-- the valid objects in a list (kind watched), else a search (FindAllOf) like before
+local function objects(kind, list, search)
+    local out = {}
+    if watching[kind] then
+        local t = live[list]
+        if t then for i = 1, #t do
+            local o = t[i]
+            if o then
+                local ok, valid = pcall(function() return o:IsValid() end)
+                if ok and valid then out[#out + 1] = o else t[i] = false end
+            end
+        end end
+    else
+        local all = FindAllOf(search or list)
+        if all then for _, o in ipairs(all) do if o:IsValid() then out[#out + 1] = o end end end
+    end
+    return out
+end
 
 -- Bulwark: each blocked hit is one stack of its gameplay effects, and those stop at StackLimitCount (10 in 1.14.7,
 -- also the counter top left). Raise the limit to the hits-blocked value when that is higher; put it back otherwise.
@@ -101,10 +146,13 @@ local function patch_links(settings)
                 -- (e.g. upgrades) is measured against that, not against 425 (else a copy made after the default was
                 -- patched counted the change twice: 1143 became 1861)
                 local have = get(cdo, l.prop) or orig
-                if math.abs(have - want) > 1e-6 then put(cdo, l.prop, want) end
-                local live = FindAllOf(l.class)
-                if live then for _, o in ipairs(live) do
-                    local fn = o:IsValid() and full_name(o)
+                local wrote = math.abs(have - want) > 1e-6
+                if wrote then put(cdo, l.prop, want) end
+                -- live abilities: every tick from the list; when searching, only after a change or every 30 s
+                -- (the game can rewrite their heal)
+                local list = (watching.ability or wrote or settings_changed or ticks % 10 == 0) and objects('ability', l.class) or {}
+                for _, o in ipairs(list) do
+                    local fn = full_name(o)
                     if fn and not fn:find('Default__', 1, true) then
                         local h = get(o, l.prop)
                         if h then
@@ -114,7 +162,7 @@ local function patch_links(settings)
                             link_wrote[fn] = target
                         end
                     end
-                end end
+                end
                 local text = string.format('%g', want)
                 if link_last[l.key] ~= text then link_last[l.key] = text; log('Slayer Flask heal now: ' .. text) end
             end
@@ -146,13 +194,16 @@ local function target(name, k)
     return v
 end
 
-local function apply(o, name)
+local function apply(o, name)   -- returns true when it had to change something
+    local wrote = false
     for k in pairs(original[name]) do
         local want, have = target(name, k), get(o, k)
         if want ~= nil and have ~= nil and math.abs(have - want) > 1e-6 then
+            wrote = true
             if not put(o, k, want) then log(name .. ': could not set ' .. k) end
         end
     end
+    return wrote
 end
 
 local function find_cdo(name)
@@ -181,9 +232,10 @@ local function patch(name)
         end
     end
     if added then write_found() end
-    apply(cdo, name)
-    local live = FindAllOf('QuickItem_' .. name .. '_C')
-    if live then for _, o in ipairs(live) do if o:IsValid() then apply(o, name) end end end
+    local wrote = apply(cdo, name)
+    if wrote or added or settings_changed then
+        for _, o in ipairs(objects('item', 'QuickItem_' .. name .. '_C')) do apply(o, name) end
+    end
     -- log what is in use whenever it changes
     local parts = {}
     for k, s in pairs(settings) do
@@ -197,13 +249,40 @@ local function patch(name)
 end
 
 log('loaded, settings file: ' .. SETTINGS)
-local ticks, reported = 0, false
+local ITEM_CLASSES, ABILITY_CLASSES = {}, {}
+for _, n in ipairs(ALL) do ITEM_CLASSES['QuickItem_' .. n .. '_C'] = true end
+for _, l in ipairs(LINKS) do ABILITY_CLASSES[l.class] = true end
+-- The tonics and the flask you carry (QuickItem_<name>_C): get your values when you change settings mid-game.
+-- Both classes, because it is not known which one the tonics are made from; a tonic reported twice is kept once.
+watch('item', { '/Script/Archon.ArchonQuickItem', '/Script/Archon.ArchonInventoryItem_QuickItem' }, function(o)
+    local c = class_name(o)
+    if c and ITEM_CLASSES[c] and not is_default(o) then keep(c, o) end
+end)
+-- The Slayer Flask's drink ability: holds its own heal amount ("Heal Amount"), checked every 3 s (patch_links).
+-- Every ability in the game passes here; only the flask's is kept.
+watch('ability', { '/Script/GameplayAbilities.GameplayAbility' }, function(o)
+    local c = class_name(o)
+    if c and ABILITY_CLASSES[c] and not is_default(o) then keep(c, o) end
+end)
+-- The players' health attribute sets (not the behemoths'): the 100% modes set stamina use and damage taken there.
+watch('health', { '/Script/Archon.ArchonHealthAttributeSet' }, function(o)
+    if is_default(o) then return end
+    local fn = full_name(o) or ''
+    if fn:find('PlayerCharacter', 1, true) and not fn:find('Default__', 1, true) then keep('player health', o) end
+end)
 -- Check every few seconds; cheap and idempotent (the classes can also be reloaded per map). This runs right here in
 -- the LoopAsync thread on purpose: ExecuteInGameThread needs UE4SS's ProcessEvent hook, which UE4SS 3.0.1 does not
 -- find in Dauntless 1.14.7, so its callbacks never run (that is why the first version never changed anything).
 -- Writing a number into a potion's default object is safe from here.
+local last_settings_text
 LoopAsync(3000, function()
     settings = read_values(SETTINGS)
+    local keys = {}
+    for k, v in pairs(settings) do keys[#keys + 1] = k .. '=' .. string.format('%g', v) end
+    table.sort(keys)
+    local text = table.concat(keys, '\n')
+    settings_changed = text ~= last_settings_text
+    last_settings_text = text
     ticks = ticks + 1
     local missing = {}
     for _, name in ipairs(ALL) do
@@ -254,20 +333,22 @@ LoopAsync(250, function()
             any = any or on
         end
         if not any then return end
-        local now = os.clock()
-        if now >= full_scan then   -- the players' health attribute sets, found again every 5 s
-            full_scan = now + 5
-            full_sets = {}
-            local all = FindAllOf('ArchonHealthAttributeSet')
-            if all then for _, s in ipairs(all) do
-                local fn = full_name(s) or ''
-                if s:IsValid() and fn:match('PlayerCharacter') and not fn:match('Default__') then full_sets[#full_sets + 1] = s end
-            end end
+        -- the players' health attribute sets: from the list, or (class not found) searched again every 10 s
+        if watching.health then
+            full_sets = objects('health', 'player health')
+        else
+            local now = os.clock()
+            if now >= full_scan then
+                full_scan = now + 10
+                full_sets = {}
+                for _, s in ipairs(objects('health', 'player health', 'ArchonHealthAttributeSet')) do
+                    local fn = full_name(s) or ''
+                    if fn:match('PlayerCharacter') and not fn:match('Default__') then full_sets[#full_sets + 1] = s end
+                end
+            end
         end
         for _, s in ipairs(full_sets) do
-            if s:IsValid() then
-                for _, fm in ipairs(full_modes) do if full_on[fm.name] then pcall(fm.apply, s) end end
-            end
+            for _, fm in ipairs(full_modes) do if full_on[fm.name] then pcall(fm.apply, s) end end
         end
     end)
     return false
