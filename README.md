@@ -2,7 +2,7 @@
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
-By GoldenHeartbell. Version 1.2. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
+By GoldenHeartbell. Version 1.3. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
 
 ## What it does
 
@@ -10,9 +10,9 @@ Adds a **Potions** tab to the UE4SS window. Pick a tonic, move the sliders, pres
 
 | Item | What you can change |
 | --- | --- |
-| Bulwark Tonic | Hits blocked (normal 3), less damage taken (normal 31%; at 100% the blocked hits do no damage), max carried (normal 3) |
+| Bulwark Tonic | Hits blocked (normal 3), less damage taken (normal 31%; at 100% the blocked hits do practically no damage, 1/100000), max carried (normal 3) |
 | Blitz Tonic | Attack speed, duration (normal 60 s), max carried (normal 5) |
-| Stamina Tonic | Less stamina used (normal 33%; stamina regen goes up by the same factor), duration. At 100% no stamina is used at all while the tonic lasts |
+| Stamina Tonic | Less stamina used (normal 33%; stamina regen goes up by the same factor), duration. At 100% practically no stamina is used (1/100000) while the tonic lasts |
 | Slayer Flask | Heal amount (normal 425 HP), max carried |
 | Frenzy Tonic | Damage bonus, damage vs enraged, duration, max carried |
 | Insight, Assault, Aetherdrive Tonic | Strength, duration, max carried |
@@ -39,10 +39,9 @@ Your tonic upgrades (and the flask upgrades from the Slayer's path) still add on
 
 ## Use
 
-1. Start the game and open your loadout (the game only loads the tonics you have equipped).
-2. Press **Ctrl+O**, open the **Potions** tab, change values, press **Save**.
-3. The game uses the new values within 3 seconds. If the tooltip still shows the old numbers, close and reopen your
-   loadout. A tonic you already drank keeps its old values; the next one uses the new ones.
+1. Press **Ctrl+O**, open the **Potions** tab, change values, press **Save**.
+2. Your values are used from the **next map load**: your next hunt (or going back to Ramsgate). The tonics you carry
+   and their inventory text are updated then too; nothing changes in the middle of a hunt.
 
 **Back to normal:** "Normal values for all" + Save, or delete `settings.txt` in the mod folder.
 
@@ -60,9 +59,8 @@ Open the Console tab in the UE4SS window (Ctrl+O), or `ue4ss\UE4SS.log`, and loo
 
 | Log line | Meaning |
 | --- | --- |
-| `Damage_Block_Potion normal: MaxStackSize=3 NumCharges=3 Magnitude=0.45` | The tonic was found |
-| `Damage_Block_Potion now: NumCharges=10` | Your values are in use |
-| `not loaded yet (open your loadout or start a hunt): ...` | Put the tonic in your loadout |
+| `settings (map load): Damage_Block_Potion.NumCharges=10 ...` | Your settings were read for this map |
+| `Damage_Block_Potion: NumCharges=10` | A Bulwark was made with your values |
 
 > Your game and your hunt server write to the same `UE4SS.log`, so the one started last overwrites it.
 
@@ -93,6 +91,17 @@ These are in the mod folder:
 | `found.txt` | The game's normal values, shown in the tab |
 
 ## Changes
+
+### 1.3
+
+- Fixed the game and the Ramsgate/hunt servers crashing (loading or leaving a hunt, "Error 3: The Ramsgate server
+  closed"), and the micro stutter: the mod no longer runs in the background. Each tonic gets your values the moment
+  the game makes it.
+- Changes you save now take effect from the next hunt (map load), not mid-hunt. The inventory text of the tonics you
+  carry is updated then too.
+- 100% (Stamina Tonic, Bulwark) now saves 99999 instead of 999, which leaves 1/100000 of the normal stamina use /
+  damage: practically none (exactly none needed the background work). A 100% saved with an older version shows as
+  99.9%: move the slider to 100% and press Save.
 
 ### 1.2
 
