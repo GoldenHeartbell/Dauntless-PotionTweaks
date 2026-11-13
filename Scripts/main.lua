@@ -107,25 +107,28 @@ end
 load_settings('game start')
 
 -- Bulwark: each blocked hit is one stack of its gameplay effects, and those stop at StackLimitCount (10 in 1.14.7,
--- also the counter top left). Raised to the hits-blocked value when that is higher, put back otherwise. These are
--- default objects of effect classes the Bulwark potion uses, so they are set when a Bulwark potion is made.
+-- also the counter top left). Raised to the hits-blocked value when that is higher. These are default objects of
+-- effect classes the Bulwark potion uses, found by name, which is only safe the first time the class is loaded:
+-- once the game has unloaded it (Ramsgate after its players left, your game on every map switch), a lookup can find
+-- the half-freed old one, and that crashed the Ramsgate server when a player came back from a hunt. So only a hunt
+-- server does it (that is where hits are counted, and it runs one hunt), once, when the first Bulwark is made.
 local STACK_EFFECTS = { '/Game/game/consumables/damage_block_ge', '/Game/game/consumables/damage_block_icon_ge' }
-local stack_normal = {}
+local HUNT_SERVER = ROLE ~= 'client' and ROLE ~= 'srvhome'   -- srvhome = the Ramsgate server, srvhome1 = the hunt
+local stack_done = false
 local function set_stack_limits()
+    if not HUNT_SERVER or stack_done then return end
+    stack_done = true
+    local charges = settings['Damage_Block_Potion.NumCharges']
+    if not charges then return end
     for _, path in ipairs(STACK_EFFECTS) do
         local cname = path:match('([^/]+)$')
         local cdo = StaticFindObject(path .. '.Default__' .. cname .. '_C')
         if cdo and cdo:IsValid() then
             local have = get(cdo, 'StackLimitCount')
-            if have ~= nil then
-                if stack_normal[path] == nil then stack_normal[path] = have end
-                local want = stack_normal[path]
-                local charges = settings['Damage_Block_Potion.NumCharges']
-                if charges and charges > want then want = math.floor(charges + 0.5) end
-                if have ~= want then put(cdo, 'StackLimitCount', want) end
-            end
+            local want = math.floor(charges + 0.5)
+            if have ~= nil and want > have then put(cdo, 'StackLimitCount', want) end
         else
-            log(cname .. ': not loaded when the Bulwark was made, hits blocked stay at most ' .. (stack_normal[path] or 10))
+            log(cname .. ': not loaded when the Bulwark was made, hits blocked count up to 10')
         end
     end
 end
