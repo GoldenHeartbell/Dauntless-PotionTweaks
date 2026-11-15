@@ -2,7 +2,7 @@
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
-By GoldenHeartbell. Version 1.3.1. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
+By GoldenHeartbell. Version 1.3.2. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
 
 ## What it does
 
@@ -91,6 +91,11 @@ These are in the mod folder:
 | `found.txt` | The game's normal values, shown in the tab |
 
 ## Changes
+
+### 1.3.2
+
+- Dauntless 1.6.2: Bulwark's hits blocked stopped at 10 (the counter top left) when you set it higher. The mod didn't
+  recognise the 1.6.2 hunt server, so it never raised the game's limit there. 1.14.7 is unchanged.
 
 ### 1.3.1
 

@@ -34,11 +34,13 @@ local MOD_DIR = (function()
     return d or 'ue4ss\\Mods\\PotionTweaks\\'
 end)()
 
--- Which process this is: the launcher gives each server its own home folder (...\versions\<v>\srvhome, srvhome1);
--- the game uses ...\home.
+-- Which process this is. 1.14.7 or 1.6.2.
 local ROLE = (function()
     local h = (os.getenv('LOCALAPPDATA') or '') .. '\\'
-    return h:match('\\(srvhome%d*)\\') or 'client'
+    local home = h:match('\\(srvhome%d*)\\')
+    if home then return home end
+    if os.getenv('GAMESERVER_BINARY_PATH') then return 'server162' end
+    return 'client'
 end)()
 local function log(s) print('[PotionTweaks] ' .. s .. '\n') end
 local function get(o, k) local ok, v = pcall(function() return o[k] end); if ok and type(v) == 'number' then return v end; return nil end
@@ -114,10 +116,21 @@ load_settings('game start')
 -- server does it (that is where hits are counted, and it runs one hunt), once, when the first Bulwark is made.
 local STACK_EFFECTS = { '/Game/game/consumables/damage_block_ge', '/Game/game/consumables/damage_block_icon_ge' }
 local HUNT_SERVER = ROLE ~= 'client' and ROLE ~= 'srvhome'   -- srvhome = the Ramsgate server, srvhome1 = the hunt
+-- 1.6.2 servers all have the same role: the map tells them apart (Ramsgate and the Training Dojo stay up for hours).
+local function is_city_server()
+    if ROLE ~= 'server162' then return false end
+    local w = FindFirstOf('World')
+    local n = (w and w:IsValid() and full_name(w) or ''):lower()
+    return n == '' or n:find('/ramsgate/', 1, true) ~= nil or n:find('/dojo/', 1, true) ~= nil
+end
 local stack_done = false
 local function set_stack_limits()
     if not HUNT_SERVER or stack_done then return end
     stack_done = true
+    if is_city_server() then
+        log('Ramsgate/Training Dojo : hits blocserverked are not raised here (only on hunt servers)')
+        return
+    end
     local charges = settings['Damage_Block_Potion.NumCharges']
     if not charges then return end
     for _, path in ipairs(STACK_EFFECTS) do
@@ -243,4 +256,4 @@ watch({ '/Script/Engine.World' }, function()
     if not ok then log('tonics you carry: error ' .. tostring(err)) end
 end)
 
-log('loaded, settings file: ' .. SETTINGS)
+log('loaded (' .. ROLE .. '), settings file: ' .. SETTINGS)
