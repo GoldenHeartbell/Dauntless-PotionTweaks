@@ -116,21 +116,24 @@ load_settings('game start')
 -- server does it (that is where hits are counted, and it runs one hunt), once, when the first Bulwark is made.
 local STACK_EFFECTS = { '/Game/game/consumables/damage_block_ge', '/Game/game/consumables/damage_block_icon_ge' }
 local HUNT_SERVER = ROLE ~= 'client' and ROLE ~= 'srvhome'   -- srvhome = the Ramsgate server, srvhome1 = the hunt
--- 1.6.2 servers all have the same role: the map tells them apart (Ramsgate and the Training Dojo stay up for hours).
-local function is_city_server()
-    if ROLE ~= 'server162' then return false end
-    local w = FindFirstOf('World')
-    local n = (w and w:IsValid() and full_name(w) or ''):lower()
-    return n == '' or n:find('/ramsgate/', 1, true) ~= nil or n:find('/dojo/', 1, true) ~= nil
+local CITY_ROLE = ROLE == 'srvhome'
+local in_city = ROLE ~= 'client'
+local function note_map(world)
+    local n = (full_name(world) or ''):lower()
+    local city
+    if n:find('/maps/ramsgate/', 1, true) or n:find('/maps/islands/dojo/', 1, true) then city = true
+    elseif n:find('/maps/islands/', 1, true) then city = false
+    else return end   -- not a map (editor/preview worlds) or a part of a map from elsewhere: no change
+    if city ~= in_city then
+        in_city = city
+        log((n:match('([^/%.]+)$') or n) .. ': ' .. (city and 'Ramsgate/Training Grounds, the mod does nothing here' or 'hunt, values are applied'))
+    end
 end
+
 local stack_done = false
 local function set_stack_limits()
-    if not HUNT_SERVER or stack_done then return end
+    if not HUNT_SERVER or stack_done or in_city then return end
     stack_done = true
-    if is_city_server() then
-        log('Ramsgate/Training Dojo : hits blocserverked are not raised here (only on hunt servers)')
-        return
-    end
     local charges = settings['Damage_Block_Potion.NumCharges']
     if not charges then return end
     for _, path in ipairs(STACK_EFFECTS) do
@@ -237,19 +240,28 @@ local function update_carried()
     carried = now
 end
 
+if CITY_ROLE then
+    log('loaded (' .. ROLE .. '): Ramsgate server, the mod does nothing here')
+    return
+end
+
 local ITEM_CLASSES = {}
 for _, n in ipairs(ALL) do ITEM_CLASSES['QuickItem_' .. n .. '_C'] = n end
 -- Both classes, because it is not known which one the tonics are made from; a potion reported twice is set twice
--- (harmless: the second time nothing changes).
+-- (harmless: the second time nothing changes). 'in_city' first: in Ramsgate/Training Grounds nothing is read at all.
 watch({ '/Script/Archon.ArchonQuickItem', '/Script/Archon.ArchonInventoryItem_QuickItem' }, function(item)
+    if in_city then return end
     local name = ITEM_CLASSES[class_name(item) or '']
     if name and not is_default(item) then set_new_item(item, name); keep_carried(item, name) end
 end)
 watch({ '/Script/GameplayAbilities.GameplayAbility' }, function(ability)
+    if in_city then return end
     if class_name(ability) == FLASK_CLASS and not is_default(ability) then set_new_ability(ability) end
 end)
--- A map load (a new World): read settings.txt again, before the map makes your potions; update the tonics you carry.
-watch({ '/Script/Engine.World' }, function()
+-- A map load (a new World): servers note which map it is; read settings.txt again, before the map makes your
+-- potions; update the tonics you carry.
+watch({ '/Script/Engine.World' }, function(world)
+    if ROLE ~= 'client' then note_map(world) end
     -- only when you saved a change since the last map: else your tonics already have these values
     if not load_settings('map load') then return end
     local ok, err = pcall(update_carried)

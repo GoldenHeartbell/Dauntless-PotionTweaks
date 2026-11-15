@@ -2,7 +2,7 @@
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
-By GoldenHeartbell. Version 1.3.2. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
+By GoldenHeartbell. Version 1.3.3. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
 
 ## What it does
 
@@ -91,6 +91,12 @@ These are in the mod folder:
 | `found.txt` | The game's normal values, shown in the tab |
 
 ## Changes
+
+### 1.3.3
+
+- Fixed another Ramsgate server crash when you come back from a hunt (seen after Heroic Escalation). The mod now does
+  nothing on the Ramsgate and Training Grounds servers. Nobody fights there, and your tooltips come from your own
+  game, so nothing changes for you. Hunt servers and your game work as before.
 
 ### 1.3.2
 
