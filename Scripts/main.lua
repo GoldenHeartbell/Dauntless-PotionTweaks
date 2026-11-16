@@ -1,4 +1,4 @@
--- PotionTweaks (UE4SS 3.0.1 mod for Dauntless 1.14.7, Dauntless Forever Modded mode) - by GoldenHeartbell
+-- PotionTweaks (UE4SS 4.0.0 mod for Dauntless 1.14.7, Dauntless Forever Modded mode) - by GoldenHeartbell
 -- Changes potion (tonic) strength / duration / stack size.
 --
 -- Two parts, one mod folder:
@@ -9,11 +9,6 @@
 --   found.txt     the game's normal values (shown in the tab)
 -- No settings.txt (or an empty one) = the normal game.
 --
--- How: no loops and no hooks. settings.txt is read when the game starts and on every map load (Ramsgate, a hunt).
--- The game tells this script about every new potion and Slayer Flask drink ability (NotifyOnNewObject) and the
--- values are set right there, while the object is being made. So a change you save takes effect on the next map
--- load: your next hunt. Objects that already exist are left alone (looking them up while the game loads or frees
--- them crashed the game and its servers), except the tonics your game carries, updated at the start of a map load.
 -- IMPORTANT: in a hunt the buff is applied by the hunt server (also on your PC in solo). Turn on "servers" on the
 -- launcher's Mods page, or only your tooltip changes. Servers read the same settings.txt.
 -- Log lines start with "[PotionTweaks]" (ue4ss\UE4SS.log, or the Console tab in Ctrl+O).
@@ -208,9 +203,7 @@ end
 
 -- Your game (not the servers) makes its tonics once, when your loadout loads, and keeps them across Ramsgate and every
 -- hunt; only the hunt server makes new ones per hunt. So the inventory text kept the values of the moment they were
--- made. Your game keeps their path names (never the objects) and updates them when a map loads: the new World is made
--- right after the game has cleaned up the old map (a full clean-up: freed objects are gone from the lookup) and before
--- the new map makes anything, so a lookup then finds only tonics that still exist.
+-- made.
 local carried = {}      -- carried[path] = potion name (client only)
 local function keep_carried(o, name)
     if ROLE ~= 'client' then return end
@@ -218,12 +211,9 @@ local function keep_carried(o, name)
     if p then carried[p] = name end
 end
 local function update_carried()
+    -- UE4SS 4: new-object callbacks run on the game thread too, so nothing adds to 'carried' during this loop
     local now = {}
-    -- a copy of the names first: a tonic made meanwhile (another thread) adds to 'carried' and would break pairs
-    local list = {}
-    for p, name in pairs(carried) do list[#list + 1] = { p, name } end
-    for _, e in ipairs(list) do
-        local p, name = e[1], e[2]
+    for p, name in pairs(carried) do
         local o = StaticFindObject(p)
         if o and o:IsValid() then
             now[p] = name
@@ -247,25 +237,55 @@ end
 
 local ITEM_CLASSES = {}
 for _, n in ipairs(ALL) do ITEM_CLASSES['QuickItem_' .. n .. '_C'] = n end
--- Both classes, because it is not known which one the tonics are made from; a potion reported twice is set twice
--- (harmless: the second time nothing changes). 'in_city' first: in Ramsgate/Training Grounds nothing is read at all.
-watch({ '/Script/Archon.ArchonQuickItem', '/Script/Archon.ArchonInventoryItem_QuickItem' }, function(item)
+watch({ '/Script/Archon.ArchonInventoryItem_QuickItem' }, function(item)
     if in_city then return end
     local name = ITEM_CLASSES[class_name(item) or '']
     if name and not is_default(item) then set_new_item(item, name); keep_carried(item, name) end
 end)
-watch({ '/Script/GameplayAbilities.GameplayAbility' }, function(ability)
+watch({ '/Script/Archon.ArchonQuickItem' }, function(ability)
     if in_city then return end
     if class_name(ability) == FLASK_CLASS and not is_default(ability) then set_new_ability(ability) end
 end)
--- A map load (a new World): servers note which map it is; read settings.txt again, before the map makes your
--- potions; update the tonics you carry.
-watch({ '/Script/Engine.World' }, function(world)
-    if ROLE ~= 'client' then note_map(world) end
-    -- only when you saved a change since the last map: else your tonics already have these values
-    if not load_settings('map load') then return end
-    local ok, err = pcall(update_carried)
-    if not ok then log('tonics you carry: error ' .. tostring(err)) end
-end)
+-- Map loads: only through UE4SS's LoadMap hook.
+--  - pre-hook: before the new map makes anything. settings.txt is read again.
+--  - post-hook: the map has fully loaded and the old one is cleaned up. Servers note which map it is (Ramsgate/Training
+--    Grounds or a hunt), your game updates the tonics it carries. Players join a hunt after its map has loaded, so the
+--    hunt's potions are made after this. Until the first post-hook a server counts as "in town" and changes nothing.
+local UE4SS_DIR = MOD_DIR:gsub('[^\\]+\\[^\\]+\\$', '')   -- ...\ue4ss\ (MOD_DIR is ...\ue4ss\Mods\PotionTweaks\)
+local function dauntless_vtable_layout()
+    local f = io.open(UE4SS_DIR .. 'VTableLayout.ini', 'r'); if not f then return false end
+    local text = f:read('*a') or ''; f:close()
+    return text:find('DauntlessExtraVirtual', 1, true) ~= nil
+end
+
+local carried_dirty = false    -- settings changed in the pre-hook: update the tonics you carry in the post-hook
+
+local function on_map_start()
+    local ok, changed = pcall(load_settings, 'map load')
+    if ok and changed then carried_dirty = true end
+end
+
+local function on_map_loaded(world)
+    if ROLE ~= 'client' then
+        local ok, w = pcall(function() return world:get() end)
+        if ok and w and w:IsValid() then pcall(note_map, w) end
+    end
+    if carried_dirty then
+        carried_dirty = false
+        local ok, err = pcall(update_carried)
+        if not ok then log('tonics you carry: error ' .. tostring(err)) end
+    end
+end
+
+if EngineTickAvailable == nil then
+    log('map loads: not seen (needs UE4SS 4; this is UE4SS 3.0.1). Settings are read at game start only' .. (ROLE ~= 'client' and ', and this server changes nothing' or ''))
+elseif not dauntless_vtable_layout() then
+    log('map loads: not seen (ue4ss\\VTableLayout.ini from Dauntless Forever is missing). Settings are read at game start only' .. (ROLE ~= 'client' and ', and this server changes nothing' or ''))
+else
+    local pre_ok, pre_err = pcall(RegisterLoadMapPreHook, function() on_map_start() end)
+    local post_ok, post_err = pcall(RegisterLoadMapPostHook, function(engine, world) on_map_loaded(world) end)
+    if pre_ok and post_ok then log('map loads: LoadMap hook')
+    else log('map loads: LoadMap hook could not be added (' .. tostring(pre_err or post_err) .. ')') end
+end
 
 log('loaded (' .. ROLE .. '), settings file: ' .. SETTINGS)

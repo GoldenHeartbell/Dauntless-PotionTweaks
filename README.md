@@ -2,7 +2,7 @@
 
 Change tonic strength, duration and stack size, and the Slayer Flask heal, in **Dauntless 1.14.7 and 1.6.2**.
 
-By GoldenHeartbell. Version 1.3.3. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
+By GoldenHeartbell. Version 2.0.0. [Download the latest release](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/latest)
 
 ## What it does
 
@@ -24,8 +24,8 @@ Your tonic upgrades (and the flask upgrades from the Slayer's path) still add on
 ## What you need
 
 - Dauntless 1.14.7 or 1.6.2 (the same mod folder works in both)
-- UE4SS **v3.0.1** installed in the game. Dauntless Forever "Modded" mode puts it in `Archon\Binaries\Win64\ue4ss`.
-  Other UE4SS versions will not load the Potions tab.
+- UE4SS **v4.0.0** installed in the game. Other UE4SS versions will not load the Potions tab.
+  Still on UE4SS v3.0.1? Use [PotionTweaks 1.3.3](https://github.com/GoldenHeartbell/Dauntless-PotionTweaks/releases/tag/v1.3.3).
 
 ## Install
 
@@ -61,6 +61,8 @@ Open the Console tab in the UE4SS window (Ctrl+O), or `ue4ss\UE4SS.log`, and loo
 | --- | --- |
 | `settings (map load): Damage_Block_Potion.NumCharges=10 ...` | Your settings were read for this map |
 | `Damage_Block_Potion: NumCharges=10` | A Bulwark was made with your values |
+| `map loads: LoadMap hook` | The mod sees map loads (needed to read your settings again and for hunt servers) |
+| `map loads: not seen (...)` | Wrong UE4SS version or `VTableLayout.ini` missing: settings are read at game start only, and servers change nothing |
 
 > Your game and your hunt server write to the same `UE4SS.log`, so the one started last overwrites it.
 
@@ -91,6 +93,17 @@ These are in the mod folder:
 | `found.txt` | The game's normal values, shown in the tab |
 
 ## Changes
+
+### 2.0.0
+
+- Now for UE4SS v4.0.0, the mod loader in Dauntless Forever's updated "Modded" mode. It no longer works with
+  UE4SS v3.0.1; for that, keep using 1.3.3.
+- Safer: the game tells the mod about each new tonic on the game's main thread, once the tonic is fully made. The
+  crashes 1.2 to 1.3.3 worked around came from UE4SS 3.0.1 doing this on a loading thread.
+- Map loads (your next hunt, back to Ramsgate) are now seen through UE4SS's map-load hook. Your settings are read
+  again and the tonics you carry are updated once the new map has fully loaded.
+- Less work in a hunt: the mod now only looks at tonics and tonic drink abilities, not every ability of every player
+  and monster.
 
 ### 1.3.3
 
